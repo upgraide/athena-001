@@ -60,42 +60,69 @@ done
 print_color "$BLUE" "🛡️  Testing security headers..."
 
 # Test each header individually for better reliability
-CSP_CHECK=$(curl -I -s "$SERVICE_URL/health" 2>/dev/null | grep -i "content-security-policy" || echo "")
-HSTS_CHECK=$(curl -I -s "$SERVICE_URL/health" 2>/dev/null | grep -i "strict-transport-security" || echo "")
-XCT_CHECK=$(curl -I -s "$SERVICE_URL/health" 2>/dev/null | grep -i "x-content-type-options" || echo "")
-XFO_CHECK=$(curl -I -s "$SERVICE_URL/health" 2>/dev/null | grep -i "x-frame-options" || echo "")
+print_color "$BLUE" "Checking individual security headers..."
+ALL_HEADERS=$(curl -I -s "$SERVICE_URL/health" 2>/dev/null)
 
-if [ -n "$CSP_CHECK" ] && [ -n "$HSTS_CHECK" ] && [ -n "$XCT_CHECK" ] && [ -n "$XFO_CHECK" ]; then
-    print_color "$GREEN" "✅ All critical security headers present:"
-    print_color "$GREEN" "   ✓ Content-Security-Policy"
-    print_color "$GREEN" "   ✓ Strict-Transport-Security"
-    print_color "$GREEN" "   ✓ X-Content-Type-Options"
-    print_color "$GREEN" "   ✓ X-Frame-Options"
+# Check each header explicitly
+if echo "$ALL_HEADERS" | grep -qi "content-security-policy"; then
+    print_color "$GREEN" "✅ Content-Security-Policy header present"
+    CSP_FOUND=true
 else
-    print_color "$YELLOW" "⚠️  Some security headers may be missing, but core security is implemented"
+    print_color "$RED" "❌ Content-Security-Policy header missing"
+    CSP_FOUND=false
 fi
 
-# Test 3: Encryption endpoint (development only)
-if [ "$NODE_ENV" != "production" ]; then
-    echo "🔒 Testing encryption functionality..."
-    ENCRYPT_RESPONSE=$(curl -s -X POST "$SERVICE_URL/test/encrypt" \
-        -H "Content-Type: application/json" \
-        -d '{"data":"test-secret-data"}' 2>/dev/null || echo "")
-    
-    if echo "$ENCRYPT_RESPONSE" | grep -q "success.*true"; then
-        echo "✅ Encryption test passed"
-    else
-        echo "⚠️  Encryption test skipped (production mode or service not responding)"
-    fi
+if echo "$ALL_HEADERS" | grep -qi "strict-transport-security"; then
+    print_color "$GREEN" "✅ Strict-Transport-Security header present"
+    HSTS_FOUND=true
+else
+    print_color "$RED" "❌ Strict-Transport-Security header missing"
+    HSTS_FOUND=false
+fi
+
+if echo "$ALL_HEADERS" | grep -qi "x-content-type-options"; then
+    print_color "$GREEN" "✅ X-Content-Type-Options header present"
+    XCT_FOUND=true
+else
+    print_color "$RED" "❌ X-Content-Type-Options header missing"
+    XCT_FOUND=false
+fi
+
+if echo "$ALL_HEADERS" | grep -qi "x-frame-options"; then
+    print_color "$GREEN" "✅ X-Frame-Options header present"
+    XFO_FOUND=true
+else
+    print_color "$RED" "❌ X-Frame-Options header missing"
+    XFO_FOUND=false
+fi
+
+if $CSP_FOUND && $HSTS_FOUND && $XCT_FOUND && $XFO_FOUND; then
+    print_color "$GREEN" "✅ All critical security headers verified"
+else
+    print_color "$RED" "❌ Some security headers are missing"
+    exit 1
+fi
+
+# Test 3: KMS Encryption functionality
+print_color "$BLUE" "🔒 Testing KMS encryption functionality..."
+KMS_RESPONSE=$(curl -s "$SERVICE_URL/verify/kms" 2>/dev/null || echo "")
+if echo "$KMS_RESPONSE" | grep -q "operational"; then
+    print_color "$GREEN" "✅ KMS encryption verified and working"
+else
+    print_color "$RED" "❌ KMS encryption test failed"
+    print_color "$YELLOW" "Response: $KMS_RESPONSE"
+    exit 1
 fi
 
 # Test 4: Database connectivity
-echo "🗄️  Testing database connectivity..."
-DB_RESPONSE=$(curl -s "$SERVICE_URL/test/database" 2>/dev/null || echo "")
-if echo "$DB_RESPONSE" | grep -q "successful"; then
-    echo "✅ Database connectivity verified"
+print_color "$BLUE" "🗄️  Testing database connectivity..."
+DB_RESPONSE=$(curl -s "$SERVICE_URL/verify/database" 2>/dev/null || echo "")
+if echo "$DB_RESPONSE" | grep -q "operational"; then
+    print_color "$GREEN" "✅ Database connectivity verified"
 else
-    echo "⚠️  Database test skipped (production mode or service not responding)"
+    print_color "$RED" "❌ Database connectivity test failed"
+    print_color "$YELLOW" "Response: $DB_RESPONSE"
+    exit 1
 fi
 
 # Test 5: Verify KMS setup

@@ -166,6 +166,9 @@ class FinanceMasterAPI extends SecureMicroservice {
       }
     });
 
+    // Production-safe verification endpoints
+    this.setupVerificationEndpoints();
+
     // Test endpoints (only in development)
     if (process.env.NODE_ENV !== 'production') {
       this.setupTestEndpoints();
@@ -178,6 +181,73 @@ class FinanceMasterAPI extends SecureMicroservice {
         path: req.path,
         method: req.method
       });
+    });
+  }
+
+  private setupVerificationEndpoints() {
+    // KMS verification endpoint (production-safe)
+    this.app.get('/verify/kms', async (_req: any, res: any) => {
+      try {
+        // Test KMS connectivity without exposing sensitive data
+        const testData = 'verification-test-data';
+        const encrypted = await this.encrypt(testData);
+        const decrypted = await this.decrypt(encrypted);
+        
+        const isWorking = testData === decrypted;
+        res.json({ 
+          kms_encryption: isWorking ? 'operational' : 'failed',
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        this.logger.error('KMS verification failed', { error });
+        res.status(500).json({ 
+          kms_encryption: 'failed',
+          error: 'KMS verification failed'
+        });
+      }
+    });
+
+    // Database connectivity verification
+    this.app.get('/verify/database', async (_req: any, res: any) => {
+      try {
+        // Test database connectivity with a safe read operation
+        const testDoc = await this.firestore.collection('_health').doc('test').get();
+        
+        res.json({ 
+          database_connectivity: 'operational',
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        this.logger.error('Database verification failed', { error });
+        res.status(500).json({ 
+          database_connectivity: 'failed',
+          error: 'Database verification failed'
+        });
+      }
+    });
+
+    // Service status endpoint
+    this.app.get('/verify/status', async (_req: any, res: any) => {
+      try {
+        res.json({
+          service: 'finance-master',
+          status: 'operational',
+          security_features: {
+            encryption: 'enabled',
+            audit_logging: 'enabled',
+            security_headers: 'enabled',
+            rate_limiting: 'enabled'
+          },
+          environment: process.env.NODE_ENV || 'unknown',
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        this.logger.error('Status verification failed', { error });
+        res.status(500).json({ 
+          status: 'failed',
+          error: 'Status verification failed'
+        });
+      }
     });
   }
 
