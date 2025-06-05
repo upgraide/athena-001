@@ -3,23 +3,34 @@ set -e
 
 PROJECT_ID="athena-finance-001"
 REGION="europe-west3"
-SERVICE_NAME="finance-master"
 
-echo "🚀 Quick deployment with architecture fix..."
+echo "🚀 Quick deployment for all services..."
 
-# Build and push with correct platform
-echo "🏗️  Building for Cloud Run (linux/amd64)..."
+# Deploy Finance Master Service
+echo "🏗️  Building and deploying Finance Master service..."
 gcloud builds submit --config config/cloudbuild.yaml
 
-echo "✅ Deployment completed! Testing service..."
+# Deploy Auth Service
+echo "🔐 Building and deploying Auth service..."
+gcloud builds submit --config config/cloudbuild-auth.yaml
 
-# Get service URL and test
-SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region=$REGION --format="value(status.url)")
-echo "🌐 Service URL: $SERVICE_URL"
+echo "✅ All services deployed! Testing..."
 
-# Test health endpoint
-echo "🩺 Testing health endpoint..."
-sleep 30  # Give service time to start
-curl -f "$SERVICE_URL/health" && echo "✅ Health check passed!" || echo "❌ Health check failed"
+# Test Finance Master
+FINANCE_URL=$(gcloud run services describe finance-master --region=$REGION --format="value(status.url)")
+echo "💰 Finance Master URL: $FINANCE_URL"
+echo "🩺 Testing Finance Master health..."
+curl -f "$FINANCE_URL/health" && echo "✅ Finance Master health check passed!" || echo "❌ Finance Master health check failed"
 
-echo "🎉 Secure microservice deployment successful!"
+# Test Auth Service
+AUTH_URL=$(gcloud run services describe auth-service --region=$REGION --format="value(status.url)")
+echo "🔐 Auth Service URL: $AUTH_URL"
+echo "🩺 Testing Auth Service health..."
+curl -f "$AUTH_URL/api/v1/auth/health" && echo "✅ Auth Service health check passed!" || echo "❌ Auth Service health check failed"
+
+echo ""
+echo "🎉 All services deployment successful!"
+echo ""
+echo "📋 Service URLs:"
+echo "  Finance Master: $FINANCE_URL"
+echo "  Auth Service: $AUTH_URL"

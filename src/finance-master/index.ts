@@ -1,5 +1,6 @@
 import { SecureMicroservice } from '../../services/shared/secure-base';
 import { FinanceMasterService } from './service';
+import { authenticateToken, AuthRequest } from '../../services/shared/auth/middleware';
 import cors from 'cors';
 import compression from 'compression';
 
@@ -56,12 +57,18 @@ class FinanceMasterAPI extends SecureMicroservice {
       }
     });
 
-    // Account management endpoints
-    this.app.post('/api/v1/accounts', async (req: any, res: any) => {
+    // Account management endpoints (protected)
+    this.app.post('/api/v1/accounts', authenticateToken, async (req: AuthRequest, res: any) => {
       try {
-        const { userId, accountData } = req.body;
-        if (!userId || !accountData) {
-          return res.status(400).json({ error: 'userId and accountData required' });
+        if (!req.user) {
+          return res.status(401).json({ error: 'Authentication required' });
+        }
+        
+        const { accountData } = req.body;
+        const userId = req.user.userId; // Get userId from authenticated user
+        
+        if (!accountData) {
+          return res.status(400).json({ error: 'accountData required' });
         }
 
         // Encrypt sensitive account data
@@ -93,8 +100,8 @@ class FinanceMasterAPI extends SecureMicroservice {
       }
     });
 
-    // Transaction categorization endpoint
-    this.app.post('/api/v1/transactions/categorize', async (req: any, res: any) => {
+    // Transaction categorization endpoint (protected)
+    this.app.post('/api/v1/transactions/categorize', authenticateToken, async (req: AuthRequest, res: any) => {
       try {
         const { transaction } = req.body;
         if (!transaction) {
@@ -115,8 +122,8 @@ class FinanceMasterAPI extends SecureMicroservice {
       }
     });
 
-    // Document processing endpoint
-    this.app.post('/api/v1/documents/process', async (req: any, res: any) => {
+    // Document processing endpoint (protected)
+    this.app.post('/api/v1/documents/process', authenticateToken, async (req: AuthRequest, res: any) => {
       try {
         const { document } = req.body;
         if (!document) {
@@ -144,13 +151,14 @@ class FinanceMasterAPI extends SecureMicroservice {
       }
     });
 
-    // Insights generation endpoint
-    this.app.get('/api/v1/insights/:userId', async (req: any, res: any) => {
+    // Insights generation endpoint (protected)
+    this.app.get('/api/v1/insights', authenticateToken, async (req: AuthRequest, res: any) => {
       try {
-        const { userId } = req.params;
-        if (!userId) {
-          return res.status(400).json({ error: 'userId required' });
+        if (!req.user) {
+          return res.status(401).json({ error: 'Authentication required' });
         }
+        
+        const userId = req.user.userId;
 
         const insights = await this.financeService.generateInsights(userId);
         

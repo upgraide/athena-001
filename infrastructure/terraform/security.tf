@@ -92,6 +92,41 @@ resource "google_secret_manager_secret" "database_credentials" {
   }
 }
 
+# JWT secrets for authentication
+resource "google_secret_manager_secret" "jwt_access_secret" {
+  secret_id = "jwt-access-secret"
+  
+  replication {
+    user_managed {
+      replicas {
+        location = "europe-west3"
+      }
+    }
+  }
+  
+  labels = {
+    environment = "production"
+    type        = "authentication"
+  }
+}
+
+resource "google_secret_manager_secret" "jwt_refresh_secret" {
+  secret_id = "jwt-refresh-secret"
+  
+  replication {
+    user_managed {
+      replicas {
+        location = "europe-west3"
+      }
+    }
+  }
+  
+  labels = {
+    environment = "production"
+    type        = "authentication"
+  }
+}
+
 # Secure VPC Network
 resource "google_compute_network" "secure_vpc" {
   name                    = "athena-secure-vpc"
