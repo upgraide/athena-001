@@ -219,7 +219,7 @@ class FinanceMasterAPI extends SecureMicroservice {
     this.app.get('/verify/database', async (_req: any, res: any) => {
       try {
         // Test database connectivity with a safe read operation
-        const testDoc = await this.firestore.collection('_health').doc('test').get();
+        await this.firestore.collection('_health').doc('test').get();
         
         res.json({ 
           database_connectivity: 'operational',
