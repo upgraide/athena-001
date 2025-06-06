@@ -220,6 +220,89 @@ Alerts are sent to the configured email address. To update:
 ALERT_EMAIL=newemail@example.com ./scripts/deployment/deploy-monitoring.sh
 ```
 
+## GDPR Compliance
+
+### Overview
+
+Athena Finance is fully GDPR compliant with comprehensive data protection features:
+
+### User Rights Implementation
+
+1. **Right to Access (Data Export)**
+   ```bash
+   POST /api/v1/gdpr/export
+   Authorization: Bearer <token>
+   ```
+   - Exports all user data in JSON format
+   - Creates a downloadable ZIP file with 7-day expiry
+   - Includes profile, accounts, transactions, documents, insights, and audit logs
+
+2. **Right to be Forgotten (Data Deletion)**
+   ```bash
+   POST /api/v1/gdpr/delete
+   Authorization: Bearer <token>
+   {
+     "password": "UserPassword123!"
+   }
+   ```
+   - Requires password confirmation for security
+   - Anonymizes user profile data
+   - Deletes all associated financial data
+   - Preserves anonymized audit logs for compliance
+
+3. **Consent Management**
+   ```bash
+   POST /api/v1/gdpr/consent
+   Authorization: Bearer <token>
+   {
+     "dataProcessing": true,
+     "marketing": false,
+     "analytics": true
+   }
+   ```
+   - Granular consent controls
+   - Full consent history tracking
+   - IP address logging for compliance
+
+4. **Privacy Policy**
+   ```bash
+   GET /api/v1/gdpr/privacy-policy
+   ```
+   - Machine-readable privacy policy
+   - Data retention information
+   - Legal basis for processing
+   - User rights documentation
+
+### GDPR Request Tracking
+
+All GDPR requests are tracked and audited:
+```bash
+GET /api/v1/gdpr/requests
+Authorization: Bearer <token>
+```
+
+Returns history of all export/deletion requests with status.
+
+### Data Security
+
+- All exports are encrypted and stored in KMS-encrypted buckets
+- Automatic deletion of exports after 30 days
+- Signed URLs with 7-day expiry for downloads
+- Full audit trail of all GDPR operations
+
+### Testing GDPR Compliance
+
+```bash
+./scripts/testing/test-gdpr.sh
+```
+
+Tests all GDPR endpoints including:
+- Privacy policy access
+- Consent management
+- Data export functionality
+- Account deletion with verification
+- Post-deletion access prevention
+
 ## Future Enhancements
 
 1. **Google OAuth Integration** - Structure is ready, just needs implementation
@@ -230,3 +313,5 @@ ALERT_EMAIL=newemail@example.com ./scripts/deployment/deploy-monitoring.sh
 6. **Slack/PagerDuty Integration** - Additional alert channels
 7. **SLO Monitoring** - Service Level Objective tracking
 8. **Distributed Tracing** - End-to-end request tracing
+9. **Data Retention Automation** - Automatic deletion after retention period
+10. **GDPR Dashboard** - UI for managing privacy settings

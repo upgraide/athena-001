@@ -5,17 +5,20 @@ import { passwordService } from '../../services/shared/auth/password';
 import { RegisterDto, LoginDto } from '../../services/shared/models/user';
 import { authenticateToken, AuthRequest } from '../../services/shared/auth/middleware';
 import { MonitoringHelper } from '../../services/shared/monitoring';
+import { GDPRService } from '../../services/shared/gdpr/gdpr.service';
 import cors from 'cors';
 import compression from 'compression';
 
 class AuthService extends SecureMicroservice {
   private userService: UserService;
   private monitoring: MonitoringHelper;
+  private gdprService: GDPRService;
 
   constructor() {
     super('auth-service');
     this.userService = new UserService(this.firestore);
     this.monitoring = new MonitoringHelper(this.logger);
+    this.gdprService = new GDPRService();
     this.setupMiddleware();
     this.setupRoutes();
   }
@@ -295,6 +298,173 @@ class AuthService extends SecureMicroservice {
         service: 'auth-service',
         status: 'healthy',
         timestamp: new Date().toISOString()
+      });
+    });
+
+    // GDPR Endpoints
+
+    // Export user data (protected)
+    this.app.post('/api/v1/gdpr/export', authenticateToken, async (req: AuthRequest, res: any) => {
+      try {
+        if (!req.user) {
+          return res.status(401).json({ error: 'Not authenticated' });
+        }
+
+        const exportRequest = await this.gdprService.exportUserData(req.user.userId);
+
+        await this.auditLog('gdpr_export_requested', {
+          userId: req.user.userId,
+          requestId: exportRequest.id
+        }, 'high');
+
+        res.json({
+          message: 'Export request created. You will receive a download link when ready.',
+          request: exportRequest
+        });
+      } catch (error) {
+        this.logger.error('GDPR export request failed', { error });
+        res.status(500).json({ error: 'Failed to create export request' });
+      }
+    });
+
+    // Delete user data (protected)
+    this.app.post('/api/v1/gdpr/delete', authenticateToken, async (req: AuthRequest, res: any) => {
+      try {
+        if (!req.user) {
+          return res.status(401).json({ error: 'Not authenticated' });
+        }
+
+        // Require password confirmation
+        const { password } = req.body;
+        if (!password) {
+          return res.status(400).json({ error: 'Password confirmation required' });
+        }
+
+        // Verify password
+        const user = await this.userService.findById(req.user.userId);
+        if (!user || !user.passwordHash) {
+          return res.status(404).json({ error: 'User not found' });
+        }
+
+        const isValidPassword = await passwordService.verifyPassword(password, user.passwordHash);
+        if (!isValidPassword) {
+          return res.status(401).json({ error: 'Invalid password' });
+        }
+
+        const deleteRequest = await this.gdprService.deleteUserData(req.user.userId);
+
+        await this.auditLog('gdpr_deletion_requested', {
+          userId: req.user.userId,
+          requestId: deleteRequest.id
+        }, 'critical');
+
+        res.json({
+          message: 'Deletion request created. Your data will be permanently removed.',
+          request: deleteRequest
+        });
+      } catch (error) {
+        this.logger.error('GDPR deletion request failed', { error });
+        res.status(500).json({ error: 'Failed to create deletion request' });
+      }
+    });
+
+    // Update consent (protected)
+    this.app.post('/api/v1/gdpr/consent', authenticateToken, async (req: AuthRequest, res: any) => {
+      try {
+        if (!req.user) {
+          return res.status(401).json({ error: 'Not authenticated' });
+        }
+
+        const { dataProcessing, marketing, analytics } = req.body;
+
+        await this.gdprService.recordConsent(req.user.userId, {
+          dataProcessing,
+          marketing,
+          analytics,
+          ipAddress: req.ip || undefined
+        });
+
+        await this.auditLog('consent_updated', {
+          userId: req.user.userId,
+          consent: { dataProcessing, marketing, analytics }
+        }, 'medium');
+
+        res.json({
+          message: 'Consent preferences updated successfully'
+        });
+      } catch (error) {
+        this.logger.error('Failed to update consent', { error });
+        res.status(500).json({ error: 'Failed to update consent preferences' });
+      }
+    });
+
+    // Get consent history (protected)
+    this.app.get('/api/v1/gdpr/consent/history', authenticateToken, async (req: AuthRequest, res: any) => {
+      try {
+        if (!req.user) {
+          return res.status(401).json({ error: 'Not authenticated' });
+        }
+
+        const history = await this.gdprService.getConsentHistory(req.user.userId);
+
+        res.json({
+          consents: history
+        });
+      } catch (error) {
+        this.logger.error('Failed to get consent history', { error });
+        res.status(500).json({ error: 'Failed to retrieve consent history' });
+      }
+    });
+
+    // Get GDPR requests (protected)
+    this.app.get('/api/v1/gdpr/requests', authenticateToken, async (req: AuthRequest, res: any) => {
+      try {
+        if (!req.user) {
+          return res.status(401).json({ error: 'Not authenticated' });
+        }
+
+        const requests = await this.gdprService.getGDPRRequests(req.user.userId);
+
+        res.json({
+          requests
+        });
+      } catch (error) {
+        this.logger.error('Failed to get GDPR requests', { error });
+        res.status(500).json({ error: 'Failed to retrieve GDPR requests' });
+      }
+    });
+
+    // Privacy policy endpoint (public)
+    this.app.get('/api/v1/gdpr/privacy-policy', (_req: any, res: any) => {
+      res.json({
+        version: '1.0.0',
+        lastUpdated: '2025-01-06',
+        dataController: 'Athena Finance Ltd',
+        contactEmail: 'privacy@athena-finance.com',
+        dataProcessing: {
+          purposes: [
+            'Provide financial management services',
+            'Process transactions and documents',
+            'Generate financial insights',
+            'Ensure security and prevent fraud',
+            'Comply with legal obligations'
+          ],
+          legalBasis: [
+            'Contract performance',
+            'Legitimate interests',
+            'Legal compliance',
+            'User consent'
+          ],
+          retention: 'Data is retained for 7 years after account closure for legal compliance',
+          rights: [
+            'Access your personal data',
+            'Rectify inaccurate data',
+            'Delete your data (right to be forgotten)',
+            'Export your data (data portability)',
+            'Object to processing',
+            'Withdraw consent'
+          ]
+        }
       });
     });
   }
