@@ -18,15 +18,13 @@ export class UserService {
 
       const userId = this.firestore.collection(this.usersCollection).doc().id;
       
-      const user: User = {
+      const userDoc: any = {
         id: userId,
         email: data.email.toLowerCase(),
-        passwordHash: data.password ? await passwordService.hashPassword(data.password) : undefined,
         firstName: data.firstName,
         lastName: data.lastName,
         role: 'user',
         authProvider: data.authProvider,
-        googleId: data.googleId,
         emailVerified: data.authProvider !== 'local', // Auto-verify OAuth users
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -43,6 +41,16 @@ export class UserService {
           }
         }
       };
+
+      // Only add optional fields if they have values
+      if (data.password) {
+        userDoc.passwordHash = await passwordService.hashPassword(data.password);
+      }
+      if (data.googleId) {
+        userDoc.googleId = data.googleId;
+      }
+
+      const user: User = userDoc;
 
       await this.firestore.collection(this.usersCollection).doc(userId).set(user);
       

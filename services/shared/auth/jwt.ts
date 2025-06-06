@@ -14,7 +14,7 @@ export class JWTService {
   private readonly refreshTokenExpiry: string = '7d';
 
   constructor() {
-    // In production, these should come from Secret Manager
+    // In production, these will be set via Cloud Run environment variables from Secret Manager
     this.accessTokenSecret = process.env.JWT_ACCESS_SECRET || 'dev-access-secret-change-in-production';
     this.refreshTokenSecret = process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-change-in-production';
     

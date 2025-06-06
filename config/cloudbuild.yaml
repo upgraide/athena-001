@@ -33,6 +33,7 @@ steps:
       '--vpc-egress', 'private-ranges-only',
       '--service-account', 'microservice-sa@$PROJECT_ID.iam.gserviceaccount.com',
       '--set-env-vars', 'PROJECT_ID=$PROJECT_ID,NODE_ENV=production,REGION=europe-west3',
+      '--set-secrets', 'JWT_ACCESS_SECRET=jwt-access-secret:latest,JWT_REFRESH_SECRET=jwt-refresh-secret:latest',
       '--memory', '1Gi',
       '--cpu', '1',
       '--min-instances', '0',
@@ -51,13 +52,13 @@ steps:
     entrypoint: 'bash'
     args: [
       '-c',
-      'SERVICE_URL=$(gcloud run services describe finance-master --region=europe-west3 --format="value(status.url)") && echo "Testing health at: $SERVICE_URL/health" && for i in {1..10}; do echo "Health check attempt $i/10..." && if curl -f -s "$SERVICE_URL/health"; then echo "✅ Health check passed"; exit 0; fi; sleep 10; done; echo "❌ Health check failed after 10 attempts"; exit 1'
+      'SERVICE_URL=$$(gcloud run services describe finance-master --region=europe-west3 --format="value(status.url)") && echo "Testing health at: $$SERVICE_URL/health" && for i in {1..10}; do echo "Health check attempt $$i/10..." && if curl -f -s "$$SERVICE_URL/health"; then echo "✅ Health check passed"; exit 0; fi; sleep 10; done; echo "❌ Health check failed after 10 attempts"; exit 1'
     ]
     id: 'health-check'
     waitFor: ['deploy-finance-master']
 
 substitutions:
-  _SERVICE_HASH: '${SHORT_SHA}'
+  _SERVICE_HASH: 'latest'
 
 options:
   logging: CLOUD_LOGGING_ONLY

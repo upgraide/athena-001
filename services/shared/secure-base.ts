@@ -7,6 +7,45 @@ import winston from 'winston';
 import { LoggingWinston } from '@google-cloud/logging-winston';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
+import * as client from 'prom-client';
+
+// Metrics registry
+const register = new client.Registry();
+
+// Default metrics
+client.collectDefaultMetrics({ register });
+
+// Custom metrics
+export const httpRequestDuration = new client.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'Duration of HTTP requests in seconds',
+  labelNames: ['method', 'route', 'status_code'],
+  buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5],
+});
+
+export const httpRequestTotal = new client.Counter({
+  name: 'http_requests_total',
+  help: 'Total number of HTTP requests',
+  labelNames: ['method', 'route', 'status_code'],
+});
+
+export const authFailures = new client.Counter({
+  name: 'auth_failures_total',
+  help: 'Total number of authentication failures',
+  labelNames: ['reason'],
+});
+
+export const businessMetrics = new client.Counter({
+  name: 'business_events_total',
+  help: 'Business events counter',
+  labelNames: ['event_type', 'status'],
+});
+
+// Register metrics
+register.registerMetric(httpRequestDuration);
+register.registerMetric(httpRequestTotal);
+register.registerMetric(authFailures);
+register.registerMetric(businessMetrics);
 
 // Secure base class for all microservices
 export abstract class SecureMicroservice {
@@ -15,6 +54,7 @@ export abstract class SecureMicroservice {
   protected secrets: SecretManagerServiceClient;
   protected kms: KeyManagementServiceClient;
   protected logger!: winston.Logger;
+  protected metricsRegistry = register;
   
   constructor(protected serviceName: string) {
     this.app = express();
@@ -56,6 +96,9 @@ export abstract class SecureMicroservice {
   }
   
   private setupSecurity() {
+    // Trust proxy for Cloud Run
+    this.app.set('trust proxy', true);
+    
     // Helmet for security headers
     this.app.use(helmet({
       hsts: {
@@ -79,31 +122,72 @@ export abstract class SecureMicroservice {
       referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
     }));
     
-    // Rate limiting
+    // Rate limiting with proper Cloud Run configuration
     const limiter = rateLimit({
       windowMs: 60 * 1000, // 1 minute
       max: 100, // 100 requests per minute per IP
       message: 'Too many requests from this IP',
       standardHeaders: true,
       legacyHeaders: false,
+      // Use X-Forwarded-For header for Cloud Run
+      keyGenerator: (req) => {
+        // Get the real IP from X-Forwarded-For header (set by Cloud Run)
+        const forwarded = req.headers['x-forwarded-for'] as string;
+        if (forwarded) {
+          // Take the first IP if there are multiple
+          return forwarded.split(',')[0]?.trim() || 'unknown';
+        }
+        return req.ip || 'unknown';
+      },
       skip: (req) => {
-        // Skip rate limiting for health checks
-        return req.path === '/health' || req.path === '/ready';
+        // Skip rate limiting for health checks and metrics
+        return req.path === '/health' || req.path === '/ready' || req.path === '/metrics';
       }
     });
     this.app.use(limiter);
     
-    // Request ID and logging
+    // Request ID, logging, and metrics
     this.app.use((req: any, res: any, next: any) => {
       req.id = req.headers['x-request-id'] as string || uuidv4();
       res.setHeader('x-request-id', req.id);
       
+      // Start timer for request duration
+      const startTime = Date.now();
+      
+      // Log request
       this.logger.info('Request received', {
         requestId: req.id,
         method: req.method,
         path: req.path,
         userAgent: req.headers['user-agent'],
         ip: req.ip
+      });
+      
+      // Capture response metrics
+      res.on('finish', () => {
+        const duration = (Date.now() - startTime) / 1000;
+        const route = req.route?.path || req.path;
+        const statusCode = res.statusCode.toString();
+        
+        // Update metrics
+        httpRequestDuration.observe(
+          { method: req.method, route, status_code: statusCode },
+          duration
+        );
+        httpRequestTotal.inc({
+          method: req.method,
+          route,
+          status_code: statusCode
+        });
+        
+        // Log response
+        this.logger.info('Request completed', {
+          requestId: req.id,
+          method: req.method,
+          path: req.path,
+          statusCode: res.statusCode,
+          duration: `${duration}s`
+        });
       });
       
       next();
@@ -113,7 +197,7 @@ export abstract class SecureMicroservice {
     this.app.use(express.json({ limit: '10mb' }));
     
     // Global error handler
-    this.app.use((err: any, req: any, res: any, next: any) => {
+    this.app.use((err: any, req: any, res: any, _next: any) => {
       this.logger.error('Request error', {
         requestId: req.id,
         error: err.message,
@@ -138,7 +222,18 @@ export abstract class SecureMicroservice {
   }
   
   private setupHealthChecks() {
-    this.app.get('/health', (req, res) => {
+    // Metrics endpoint for Prometheus scraping
+    this.app.get('/metrics', async (_req, res) => {
+      try {
+        res.set('Content-Type', this.metricsRegistry.contentType);
+        const metrics = await this.metricsRegistry.metrics();
+        res.end(metrics);
+      } catch (error) {
+        res.status(500).end();
+      }
+    });
+    
+    this.app.get('/health', (_req, res) => {
       res.json({
         status: 'healthy',
         service: this.serviceName,
@@ -147,7 +242,7 @@ export abstract class SecureMicroservice {
       });
     });
     
-    this.app.get('/ready', async (req, res) => {
+    this.app.get('/ready', async (_req, res) => {
       try {
         // Check Firestore connection
         await this.firestore.collection('_health').doc('check').set({

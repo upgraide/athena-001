@@ -32,6 +32,7 @@ steps:
       '--vpc-egress', 'private-ranges-only',
       '--service-account', 'microservice-sa@$PROJECT_ID.iam.gserviceaccount.com',
       '--set-env-vars', 'PROJECT_ID=$PROJECT_ID,NODE_ENV=production,REGION=europe-west3,AUTH_SERVICE_PORT=8081',
+      '--set-secrets', 'JWT_ACCESS_SECRET=jwt-access-secret:latest,JWT_REFRESH_SECRET=jwt-refresh-secret:latest',
       '--memory', '512Mi',
       '--cpu', '1',
       '--min-instances', '0',
@@ -50,13 +51,13 @@ steps:
     entrypoint: 'bash'
     args: [
       '-c',
-      'SERVICE_URL=$(gcloud run services describe auth-service --region=europe-west3 --format="value(status.url)") && echo "Testing auth service health at: $SERVICE_URL/api/v1/auth/health" && for i in {1..10}; do echo "Health check attempt $i/10..." && if curl -f -s "$SERVICE_URL/api/v1/auth/health"; then echo "✅ Auth service health check passed"; exit 0; fi; sleep 10; done; echo "❌ Auth service health check failed after 10 attempts"; exit 1'
+      'SERVICE_URL=$$(gcloud run services describe auth-service --region=europe-west3 --format="value(status.url)") && echo "Testing auth service health at: $$SERVICE_URL/api/v1/auth/health" && for i in {1..10}; do echo "Health check attempt $$i/10..." && if curl -f -s "$$SERVICE_URL/api/v1/auth/health"; then echo "✅ Auth service health check passed"; exit 0; fi; sleep 10; done; echo "❌ Auth service health check failed after 10 attempts"; exit 1'
     ]
     id: 'auth-health-check'
     waitFor: ['deploy-auth-service']
 
 substitutions:
-  _SERVICE_HASH: '${SHORT_SHA}'
+  _SERVICE_HASH: 'latest'
 
 options:
   logging: CLOUD_LOGGING_ONLY

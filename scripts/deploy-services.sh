@@ -17,7 +17,7 @@ PROJECT_ID="${PROJECT_ID:-athena-finance-001}"
 REGION="${REGION:-europe-west3}"
 ARTIFACT_REGISTRY="europe-west3-docker.pkg.dev"
 REPOSITORY="finance-containers"
-SERVICES=("finance-master" "document-ai" "transaction-analyzer" "insight-generator")
+SERVICES=("auth-service" "finance-master" "document-ai" "transaction-analyzer" "insight-generator")
 
 # Function to print colored output
 print_color() {
@@ -285,12 +285,21 @@ create_kms_key() {
         print_color "$GREEN" "✅ KMS key already exists"
     else
         print_color "$YELLOW" "Creating KMS key..."
+        # Calculate next rotation time (30 days from now)
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS date command
+            NEXT_ROTATION=$(date -u -v+30d "+%Y-%m-%dT%H:%M:%SZ")
+        else
+            # Linux date command
+            NEXT_ROTATION=$(date -u -d '+30 days' '+%Y-%m-%dT%H:%M:%SZ')
+        fi
+        
         gcloud kms keys create "$key_name" \
             --keyring="$keyring_name" \
             --location="$REGION" \
             --purpose="encryption" \
             --rotation-period="30d" \
-            --next-rotation-time="$(date -u -d '+30 days' '+%Y-%m-%dT%H:%M:%SZ')"
+            --next-rotation-time="$NEXT_ROTATION"
         print_color "$GREEN" "✅ KMS key created"
     fi
 }

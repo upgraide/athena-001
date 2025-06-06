@@ -4,15 +4,18 @@ import { jwtService } from '../../services/shared/auth/jwt';
 import { passwordService } from '../../services/shared/auth/password';
 import { RegisterDto, LoginDto } from '../../services/shared/models/user';
 import { authenticateToken, AuthRequest } from '../../services/shared/auth/middleware';
+import { MonitoringHelper } from '../../services/shared/monitoring';
 import cors from 'cors';
 import compression from 'compression';
 
 class AuthService extends SecureMicroservice {
   private userService: UserService;
+  private monitoring: MonitoringHelper;
 
   constructor() {
     super('auth-service');
     this.userService = new UserService(this.firestore);
+    this.monitoring = new MonitoringHelper(this.logger);
     this.setupMiddleware();
     this.setupRoutes();
   }
@@ -70,12 +73,17 @@ class AuthService extends SecureMicroservice {
           role: user.role
         });
 
-        // Audit log
+        // Audit log and monitoring
         await this.auditLog('user_registered', {
           userId: user.id,
           email: user.email,
           authProvider: 'local'
         }, 'medium');
+        
+        this.monitoring.trackBusinessEvent('user_registration', 'success', {
+          authProvider: 'local',
+          emailDomain: email.split('@')[1]
+        });
 
         res.status(201).json({
           message: 'Registration successful',
@@ -92,9 +100,15 @@ class AuthService extends SecureMicroservice {
         this.logger.error('Registration failed', { error });
         
         if (error.message === 'User with this email already exists') {
+          this.monitoring.trackBusinessEvent('user_registration', 'failure', {
+            reason: 'duplicate_email'
+          });
           return res.status(409).json({ error: 'Email already registered' });
         }
         
+        this.monitoring.trackBusinessEvent('user_registration', 'failure', {
+          reason: 'internal_error'
+        });
         res.status(500).json({ error: 'Registration failed' });
       }
     });
@@ -112,11 +126,13 @@ class AuthService extends SecureMicroservice {
         // Find user
         const user = await this.userService.findByEmail(email);
         if (!user || !user.passwordHash) {
+          this.monitoring.trackAuthFailure('user_not_found', email);
           return res.status(401).json({ error: 'Invalid credentials' });
         }
 
         // Check if user is active
         if (!user.isActive) {
+          this.monitoring.trackAuthFailure('account_deactivated', email);
           return res.status(403).json({ error: 'Account deactivated' });
         }
 
@@ -127,6 +143,7 @@ class AuthService extends SecureMicroservice {
             email,
             reason: 'invalid_password'
           }, 'high');
+          this.monitoring.trackAuthFailure('invalid_password', email);
           return res.status(401).json({ error: 'Invalid credentials' });
         }
 
@@ -140,12 +157,17 @@ class AuthService extends SecureMicroservice {
           role: user.role
         });
 
-        // Audit log
+        // Audit log and monitoring
         await this.auditLog('user_login', {
           userId: user.id,
           email: user.email,
           authProvider: 'local'
         }, 'low');
+        
+        this.monitoring.trackBusinessEvent('user_login', 'success', {
+          authProvider: 'local',
+          emailDomain: email.split('@')[1]
+        });
 
         res.json({
           message: 'Login successful',
@@ -280,7 +302,7 @@ class AuthService extends SecureMicroservice {
 
 // Start the service
 const authService = new AuthService();
-const port = parseInt(process.env.AUTH_SERVICE_PORT || '8081');
+const port = parseInt(process.env.PORT || process.env.AUTH_SERVICE_PORT || '8080');
 authService.start(port);
 
 export { AuthService };

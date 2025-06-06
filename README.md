@@ -11,20 +11,25 @@ A secure, GDPR-compliant microservices architecture for AI-powered finance autom
 - **Cloud Deployment**: Automated deployment to Google Cloud Run
 - **Security Headers**: CSP, HSTS, and comprehensive security headers
 - **Health Monitoring**: Health check endpoints and verification scripts
+- **JWT Authentication**: Complete auth system with registration, login, and protected endpoints
+- **Secret Management**: JWT secrets stored in Google Secret Manager
+- **Monitoring & Alerts**: Prometheus metrics, Cloud Monitoring dashboards, and alert policies
+- **Custom Metrics**: Business event tracking and performance monitoring
+- **Log-based Alerts**: Authentication failures and error tracking
 
 ## 🏗️ Architecture
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  Finance Master │    │ Document AI     │    │ Transaction     │
-│  Microservice   │    │ Microservice    │    │ Analyzer        │
+│   Auth Service  │    │ Finance Master  │    │ Document AI     │
+│  (JWT/OAuth)    │    │  Microservice   │    │ Microservice    │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
          │                       │                       │
          └───────────────────────┼───────────────────────┘
                                  │
          ┌─────────────────┐    │    ┌─────────────────┐
-         │ Insight         │    │    │ Secure Base     │
-         │ Generator       │    │    │ Framework       │
+         │ Transaction     │    │    │ Secure Base     │
+         │ Analyzer        │    │    │ Framework       │
          └─────────────────┘    │    └─────────────────┘
                                 │
     ┌─────────────────────────────────────────────────────┐
@@ -62,12 +67,15 @@ A secure, GDPR-compliant microservices architecture for AI-powered finance autom
 ```
 athena-001/
 ├── src/                          # Source code
+│   ├── auth-service/             # Authentication service
 │   ├── finance-master/           # Main finance service
 │   ├── document-ai/              # Document processing
 │   ├── transaction-analyzer/     # Transaction analysis
 │   └── insight-generator/        # Financial insights
 ├── services/shared/              # Shared utilities
-│   └── secure-base.ts           # Security framework
+│   ├── secure-base.ts           # Security framework
+│   ├── auth/                    # JWT, middleware, password utils
+│   └── models/                  # Data models
 ├── infrastructure/terraform/     # Infrastructure as Code
 │   ├── security.tf              # Security resources
 │   └── backend.tf               # Terraform backend
@@ -87,6 +95,10 @@ athena-001/
 - **Security Headers**: Comprehensive HTTP security headers
 - **Audit Logging**: All operations logged for compliance
 - **Container Security**: Non-root user, minimal attack surface
+- **JWT Authentication**: Secure token-based authentication
+- **Password Security**: Bcrypt hashing with strong requirements
+- **Rate Limiting**: IP-based rate limiting on all endpoints
+- **Security Monitoring**: Real-time alerts for authentication failures and suspicious activity
 
 ## 🌍 GDPR Compliance
 
@@ -97,11 +109,20 @@ athena-001/
 
 ## 📊 Service Endpoints
 
+### Authentication Service
+- **Register**: `POST /api/v1/auth/register`
+- **Login**: `POST /api/v1/auth/login`
+- **Refresh Token**: `POST /api/v1/auth/refresh`
+- **Get Profile**: `GET /api/v1/auth/me` (protected)
+- **Update Profile**: `PATCH /api/v1/auth/profile` (protected)
+- **Logout**: `POST /api/v1/auth/logout` (protected)
+
+### Finance Master Service (All Protected)
 - **Health Check**: `GET /health`
 - **Account Management**: `POST /api/v1/accounts`
 - **Transaction Processing**: `POST /api/v1/transactions/categorize`
 - **Document Processing**: `POST /api/v1/documents/process`
-- **Insights Generation**: `GET /api/v1/insights/:userId`
+- **Insights Generation**: `GET /api/v1/insights`
 
 ## 🛠️ Development
 
@@ -117,6 +138,12 @@ npm run dev
 # Run verification
 ./scripts/testing/verify-security.sh
 
+# Test authentication
+./scripts/testing/test-auth.sh
+
+# Test monitoring and alerts
+./scripts/testing/test-monitoring.sh
+
 # Test deployment locally
 ./scripts/testing/test-deployment.sh
 ```
@@ -130,11 +157,13 @@ terraform apply
 
 ## 📋 Next Development Steps
 
-1. **Authentication System**: Implement OAuth 2.0 / JWT authentication
-2. **Monitoring & Alerts**: Set up Cloud Monitoring and alerting
+1. ~~**Authentication System**: Implement OAuth 2.0 / JWT authentication~~ ✅ COMPLETE
+2. ~~**Monitoring & Alerts**: Set up Cloud Monitoring and alerting~~ ✅ COMPLETE
 3. **CI/CD Pipeline**: Implement automated testing and deployment
 4. **Load Testing**: Configure for 1000 RPS target
 5. **Security Scanning**: Implement automated security scans
+6. **Google OAuth**: Add Google OAuth integration
+7. **Email Verification**: Implement email verification flow
 
 ## 🔧 Configuration
 

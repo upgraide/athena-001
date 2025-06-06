@@ -4,12 +4,25 @@ terraform {
       source  = "hashicorp/google"
       version = "~> 5.0"
     }
+    google-beta = {
+      source  = "hashicorp/google-beta"
+      version = "~> 5.0"
+    }
   }
 }
 
 provider "google" {
   project = var.project_id
   region  = var.region
+  user_project_override = true
+  billing_project = var.project_id
+}
+
+provider "google-beta" {
+  project = var.project_id
+  region  = var.region
+  user_project_override = true
+  billing_project = var.project_id
 }
 
 variable "project_id" {
@@ -225,6 +238,20 @@ resource "google_service_account" "microservice" {
 }
 
 # IAM roles for service accounts
+# Additional IAM for authentication service
+resource "google_project_iam_member" "microservice_jwt_access" {
+  project = var.project_id
+  role    = "roles/secretmanager.secretAccessor"
+  member  = "serviceAccount:${google_service_account.microservice.email}"
+  
+  # This allows microservices to access JWT secrets
+  condition {
+    title       = "JWT Secrets Access"
+    description = "Allow access to JWT secrets only"
+    expression  = "resource.name.startsWith('projects/${var.project_id}/secrets/jwt-')"
+  }
+}
+
 resource "google_project_iam_member" "api_gateway_logging" {
   project = var.project_id
   role    = "roles/logging.logWriter"
