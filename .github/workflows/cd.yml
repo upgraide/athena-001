@@ -52,8 +52,8 @@ jobs:
           # Deploy other services
           for service in finance-master document-ai transaction-analyzer insight-generator; do
             gcloud builds submit \
-              --config=config/cloudbuild.yaml \
-              --substitutions=_SERVICE_HASH=${{ github.sha }},SERVICE_NAME=$service \
+              --config=config/cloudbuild-generic.yaml \
+              --substitutions=_SERVICE_HASH=${{ github.sha }},_SERVICE_NAME=$service \
               --region=europe-west1
           done
       
@@ -104,13 +104,13 @@ jobs:
             if [ "$service" = "auth-service" ]; then
               CONFIG_FILE="config/cloudbuild-auth.yaml"
             else
-              CONFIG_FILE="config/cloudbuild.yaml"
+              CONFIG_FILE="config/cloudbuild-generic.yaml"
             fi
             
             # Deploy new revision
             gcloud builds submit \
               --config=$CONFIG_FILE \
-              --substitutions=_SERVICE_HASH=${{ github.sha }},SERVICE_NAME=$service \
+              --substitutions=_SERVICE_HASH=${{ github.sha }},_SERVICE_NAME=$service \
               --region=europe-west1
             
             # Route 10% traffic to new revision
