@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-# Setup Workload Identity Federation for GitHub Actions
-# This enables keyless authentication from GitHub to Google Cloud
+# Setup Workload Identity Federation for GitHub Actions using Terraform
+# This ensures consistent infrastructure management
 
 # Color codes
 RED='\033[0;31m'
@@ -19,142 +19,94 @@ print_color() {
 
 # Configuration
 PROJECT_ID="athena-finance-001"
-GITHUB_REPO="joaomoreira/athena-001"  # Update with your GitHub repo
-POOL_NAME="github-pool"
-PROVIDER_NAME="github-provider"
-SA_NAME="github-actions-sa"
-SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+GITHUB_REPO="${1:-upgraide/athena-001}"
+TERRAFORM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/infrastructure/terraform"
 
 print_color "$BLUE" "🔐 Setting up Workload Identity Federation for GitHub Actions"
 print_color "$YELLOW" "Project: $PROJECT_ID"
 print_color "$YELLOW" "Repository: $GITHUB_REPO"
+print_color "$YELLOW" "Using Terraform for consistent infrastructure management"
 echo ""
 
-# Enable required APIs
-print_color "$BLUE" "Enabling required APIs..."
-gcloud services enable iamcredentials.googleapis.com --project=$PROJECT_ID
-gcloud services enable iam.googleapis.com --project=$PROJECT_ID
-
-# Create Workload Identity Pool
-print_color "$BLUE" "Creating Workload Identity Pool..."
-if gcloud iam workload-identity-pools describe $POOL_NAME \
-    --location=global \
-    --project=$PROJECT_ID &>/dev/null; then
-    print_color "$GREEN" "✅ Workload Identity Pool already exists"
-else
-    gcloud iam workload-identity-pools create $POOL_NAME \
-        --location=global \
-        --display-name="GitHub Actions Pool" \
-        --description="Pool for GitHub Actions authentication" \
-        --project=$PROJECT_ID
-    print_color "$GREEN" "✅ Workload Identity Pool created"
+# Check if Terraform is installed
+if ! command -v terraform &> /dev/null; then
+    print_color "$RED" "❌ Terraform is not installed. Please install Terraform first."
+    exit 1
 fi
 
-# Create Workload Identity Provider
-print_color "$BLUE" "Creating Workload Identity Provider..."
-if gcloud iam workload-identity-pools providers describe $PROVIDER_NAME \
-    --location=global \
-    --workload-identity-pool=$POOL_NAME \
-    --project=$PROJECT_ID &>/dev/null; then
-    print_color "$GREEN" "✅ Workload Identity Provider already exists"
+# Navigate to Terraform directory
+cd "$TERRAFORM_DIR"
+
+# Initialize Terraform
+print_color "$BLUE" "Initializing Terraform..."
+terraform init -upgrade
+
+# Set the GitHub repository variable
+print_color "$BLUE" "Configuring GitHub repository..."
+cat > github.auto.tfvars <<EOF
+github_repository = "$GITHUB_REPO"
+EOF
+
+# Plan the changes
+print_color "$BLUE" "Planning Terraform changes..."
+terraform plan -target=google_iam_workload_identity_pool.github \
+               -target=google_iam_workload_identity_pool_provider.github \
+               -target=google_service_account.github_actions \
+               -target=google_service_account.github_actions_prod \
+               -target=google_project_iam_member.github_actions_permissions \
+               -target=google_project_iam_member.github_actions_prod_permissions \
+               -target=google_service_account_iam_member.github_actions_workload_identity \
+               -target=google_service_account_iam_member.github_actions_prod_workload_identity \
+               -target=local_file.github_secrets
+
+# Apply the changes
+print_color "$YELLOW" "Do you want to apply these changes? (yes/no)"
+read -r response
+if [[ "$response" =~ ^[Yy][Ee][Ss]|[Yy]$ ]]; then
+    terraform apply -auto-approve \
+                    -target=google_iam_workload_identity_pool.github \
+                    -target=google_iam_workload_identity_pool_provider.github \
+                    -target=google_service_account.github_actions \
+                    -target=google_service_account.github_actions_prod \
+                    -target=google_project_iam_member.github_actions_permissions \
+                    -target=google_project_iam_member.github_actions_prod_permissions \
+                    -target=google_service_account_iam_member.github_actions_workload_identity \
+                    -target=google_service_account_iam_member.github_actions_prod_workload_identity \
+                    -target=local_file.github_secrets
 else
-    gcloud iam workload-identity-pools providers create-oidc $PROVIDER_NAME \
-        --location=global \
-        --workload-identity-pool=$POOL_NAME \
-        --display-name="GitHub Provider" \
-        --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository" \
-        --issuer-uri="https://token.actions.githubusercontent.com" \
-        --project=$PROJECT_ID
-    print_color "$GREEN" "✅ Workload Identity Provider created"
+    print_color "$RED" "❌ Terraform apply cancelled"
+    exit 1
 fi
 
-# Create Service Account for GitHub Actions
-print_color "$BLUE" "Creating Service Account for GitHub Actions..."
-if gcloud iam service-accounts describe $SA_EMAIL \
-    --project=$PROJECT_ID &>/dev/null; then
-    print_color "$GREEN" "✅ Service Account already exists"
-else
-    gcloud iam service-accounts create $SA_NAME \
-        --display-name="GitHub Actions Service Account" \
-        --description="Service account for GitHub Actions CI/CD" \
-        --project=$PROJECT_ID
-    print_color "$GREEN" "✅ Service Account created"
-fi
+# Get outputs
+WIF_PROVIDER=$(terraform output -raw github_wif_provider)
+SERVICE_ACCOUNT=$(terraform output -raw github_service_account)
+SERVICE_ACCOUNT_PROD=$(terraform output -raw github_service_account_prod)
 
-# Grant necessary permissions to the service account
-print_color "$BLUE" "Granting permissions to Service Account..."
-
-# Cloud Run permissions
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:$SA_EMAIL" \
-    --role="roles/run.admin"
-
-# Cloud Build permissions
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:$SA_EMAIL" \
-    --role="roles/cloudbuild.builds.editor"
-
-# Artifact Registry permissions
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:$SA_EMAIL" \
-    --role="roles/artifactregistry.writer"
-
-# Service Account User (to act as other service accounts)
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:$SA_EMAIL" \
-    --role="roles/iam.serviceAccountUser"
-
-# Storage permissions (for Terraform state if using GCS backend)
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:$SA_EMAIL" \
-    --role="roles/storage.objectAdmin"
-
-# Firestore permissions (for backups)
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:$SA_EMAIL" \
-    --role="roles/datastore.importExportAdmin"
-
-print_color "$GREEN" "✅ Permissions granted"
-
-# Allow impersonation from Workload Identity Pool
-print_color "$BLUE" "Configuring Workload Identity binding..."
-gcloud iam service-accounts add-iam-policy-binding $SA_EMAIL \
-    --project=$PROJECT_ID \
-    --role="roles/iam.workloadIdentityUser" \
-    --member="principalSet://iam.googleapis.com/projects/$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')/locations/global/workloadIdentityPools/$POOL_NAME/attribute.repository/$GITHUB_REPO"
-
-print_color "$GREEN" "✅ Workload Identity binding configured"
-
-# Get Workload Identity Provider resource name
-WIF_PROVIDER=$(gcloud iam workload-identity-pools providers describe $PROVIDER_NAME \
-    --location=global \
-    --workload-identity-pool=$POOL_NAME \
-    --project=$PROJECT_ID \
-    --format="value(name)")
-
-# Output configuration for GitHub Actions
+# Display configuration
 print_color "$BLUE" "\n📋 GitHub Actions Configuration"
 print_color "$BLUE" "================================"
 print_color "$YELLOW" "\nAdd these secrets to your GitHub repository:"
 print_color "$GREEN" "  WIF_PROVIDER: $WIF_PROVIDER"
-print_color "$GREEN" "  WIF_SERVICE_ACCOUNT: $SA_EMAIL"
+print_color "$GREEN" "  WIF_SERVICE_ACCOUNT: $SERVICE_ACCOUNT"
+print_color "$GREEN" "  WIF_SERVICE_ACCOUNT_PROD: $SERVICE_ACCOUNT_PROD"
+print_color "$GREEN" "  GCP_PROJECT_ID: $PROJECT_ID"
 
-print_color "$YELLOW" "\nFor production environment, create separate service account:"
-print_color "$GREEN" "  WIF_PROVIDER_PROD: $WIF_PROVIDER"
-print_color "$GREEN" "  WIF_SERVICE_ACCOUNT_PROD: github-actions-prod-sa@$PROJECT_ID.iam.gserviceaccount.com"
+print_color "$YELLOW" "\nThe secrets have also been saved to:"
+print_color "$GREEN" "  $TERRAFORM_DIR/.github-secrets"
 
-print_color "$BLUE" "\n📝 Example GitHub Actions workflow usage:"
-cat << 'EOF'
+print_color "$BLUE" "\n📝 To add secrets using GitHub CLI:"
+cat << EOF
 
-      - id: auth
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
-          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
-      
-      - uses: google-github-actions/setup-gcloud@v2
-      
-      - run: gcloud run services list --region=europe-west3
+cd $TERRAFORM_DIR
+gh secret set WIF_PROVIDER --repo=$GITHUB_REPO < <(terraform output -raw github_wif_provider)
+gh secret set WIF_SERVICE_ACCOUNT --repo=$GITHUB_REPO < <(terraform output -raw github_service_account)
+gh secret set WIF_SERVICE_ACCOUNT_PROD --repo=$GITHUB_REPO < <(terraform output -raw github_service_account_prod)
+gh secret set GCP_PROJECT_ID --repo=$GITHUB_REPO --body="$PROJECT_ID"
 EOF
 
 print_color "$GREEN" "\n✅ Workload Identity Federation setup complete!"
+print_color "$YELLOW" "\n📌 Next steps:"
+print_color "$YELLOW" "1. Add the secrets to your GitHub repository"
+print_color "$YELLOW" "2. Push your code to trigger the CI/CD pipeline"
+print_color "$YELLOW" "3. Monitor the Actions tab in your repository"
