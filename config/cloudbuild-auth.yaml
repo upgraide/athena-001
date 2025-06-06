@@ -31,7 +31,7 @@ steps:
       '--vpc-connector', 'athena-vpc-connector',
       '--vpc-egress', 'private-ranges-only',
       '--service-account', 'microservice-sa@$PROJECT_ID.iam.gserviceaccount.com',
-      '--set-env-vars', 'PROJECT_ID=$PROJECT_ID,NODE_ENV=production,REGION=europe-west3,AUTH_SERVICE_PORT=8081',
+      '--set-env-vars', 'PROJECT_ID=$PROJECT_ID,NODE_ENV=production,REGION=europe-west3',
       '--set-secrets', 'JWT_ACCESS_SECRET=jwt-access-secret:latest,JWT_REFRESH_SECRET=jwt-refresh-secret:latest',
       '--memory', '512Mi',
       '--cpu', '1',
@@ -40,7 +40,7 @@ steps:
       '--timeout', '300',
       '--concurrency', '100',
       '--allow-unauthenticated',
-      '--port', '8081',
+      '--port', '8080',
       '--execution-environment', 'gen2'
     ]
     id: 'deploy-auth-service'
