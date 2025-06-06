@@ -23,7 +23,7 @@
       "@/*": ["./src/*"],
       "@shared/*": ["./services/shared/*"]
     },
-    "types": ["node"]
+    "types": ["node", "jest"]
   },
   "include": [
     "src/**/*",
