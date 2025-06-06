@@ -47,14 +47,14 @@ jobs:
           gcloud builds submit \
             --config=config/cloudbuild-auth.yaml \
             --substitutions=_SERVICE_HASH=${{ github.sha }} \
-            --region=${{ env.REGION }}
+            --region=europe-west1
           
           # Deploy other services
           for service in finance-master document-ai transaction-analyzer insight-generator; do
             gcloud builds submit \
               --config=config/cloudbuild.yaml \
               --substitutions=_SERVICE_HASH=${{ github.sha }},SERVICE_NAME=$service \
-              --region=${{ env.REGION }}
+              --region=europe-west1
           done
       
       # Run validation
@@ -111,7 +111,7 @@ jobs:
             gcloud builds submit \
               --config=$CONFIG_FILE \
               --substitutions=_SERVICE_HASH=${{ github.sha }},SERVICE_NAME=$service \
-              --region=${{ env.REGION }}
+              --region=europe-west1
             
             # Route 10% traffic to new revision
             gcloud run services update-traffic $service \
