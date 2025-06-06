@@ -9,11 +9,16 @@
     "start": "node dist/index.js",
     "test": "jest",
     "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit",
     "deploy:infrastructure": "cd infrastructure/terraform && terraform apply",
-    "deploy:services": "docker-compose up --build"
+    "deploy:services": "./scripts/deploy-services.sh",
+    "deploy:staging": "gcloud builds submit --config=config/cloudbuild.yaml",
+    "validate": "./scripts/testing/validate-deployment.sh"
   },
   "keywords": [
     "ai",

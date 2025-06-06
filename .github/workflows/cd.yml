@@ -1,0 +1,165 @@
+name: CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  PROJECT_ID: athena-finance-001
+  REGION: europe-west3
+  ARTIFACT_REGISTRY: europe-west3-docker.pkg.dev
+  REPOSITORY: finance-containers
+
+jobs:
+  # Deploy to staging on push to main
+  deploy-staging:
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'staging'
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+      
+      - uses: google-github-actions/setup-gcloud@v2
+      
+      # Deploy using Cloud Build (leverages existing cloudbuild.yaml files)
+      - name: Deploy services
+        run: |
+          # Deploy auth service
+          gcloud builds submit \
+            --config=config/cloudbuild-auth.yaml \
+            --substitutions=_SERVICE_HASH=${{ github.sha }} \
+            --region=${{ env.REGION }}
+          
+          # Deploy other services
+          for service in finance-master document-ai transaction-analyzer insight-generator; do
+            gcloud builds submit \
+              --config=config/cloudbuild.yaml \
+              --substitutions=_SERVICE_HASH=${{ github.sha }},SERVICE_NAME=$service \
+              --region=${{ env.REGION }}
+          done
+      
+      # Run validation
+      - name: Validate deployment
+        run: |
+          chmod +x scripts/testing/validate-deployment.sh
+          ./scripts/testing/validate-deployment.sh staging
+
+  # Production deployment with approval
+  deploy-production:
+    if: github.event.inputs.environment == 'production'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_PROD }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT_PROD }}
+      
+      - uses: google-github-actions/setup-gcloud@v2
+      
+      # Create backup
+      - name: Backup current state
+        run: |
+          # Export Firestore
+          BACKUP_NAME="backup-$(date +%Y%m%d-%H%M%S)"
+          gcloud firestore export gs://${{ env.PROJECT_ID }}-backups/$BACKUP_NAME
+          
+          # Save current service revisions
+          for service in auth-service finance-master document-ai transaction-analyzer insight-generator; do
+            gcloud run services describe $service \
+              --region=${{ env.REGION }} \
+              --format="value(spec.template.metadata.name)" > ${service}-revision.txt
+          done
+      
+      # Deploy with canary
+      - name: Canary deployment
+        run: |
+          # Deploy new revisions without traffic
+          for service in auth-service finance-master document-ai transaction-analyzer insight-generator; do
+            if [ "$service" = "auth-service" ]; then
+              CONFIG_FILE="config/cloudbuild-auth.yaml"
+            else
+              CONFIG_FILE="config/cloudbuild.yaml"
+            fi
+            
+            # Deploy new revision
+            gcloud builds submit \
+              --config=$CONFIG_FILE \
+              --substitutions=_SERVICE_HASH=${{ github.sha }},SERVICE_NAME=$service \
+              --region=${{ env.REGION }}
+            
+            # Route 10% traffic to new revision
+            gcloud run services update-traffic $service \
+              --region=${{ env.REGION }} \
+              --to-tags=${{ github.sha }}=10
+          done
+          
+          # Monitor for 5 minutes
+          sleep 300
+          
+          # Check health
+          ./scripts/testing/validate-deployment.sh production
+      
+      # Full rollout
+      - name: Complete rollout
+        run: |
+          for service in auth-service finance-master document-ai transaction-analyzer insight-generator; do
+            gcloud run services update-traffic $service \
+              --region=${{ env.REGION }} \
+              --to-tags=${{ github.sha }}=100
+          done
+      
+      # Final validation
+      - name: Final validation
+        run: |
+          ./scripts/testing/validate-deployment.sh production
+          ./scripts/testing/test-monitoring.sh production
+
+  # Automated rollback on failure
+  rollback:
+    if: failure()
+    needs: [deploy-staging, deploy-production]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+      
+      - uses: google-github-actions/setup-gcloud@v2
+      
+      - name: Rollback services
+        run: |
+          chmod +x scripts/deployment/rollback.sh
+          ./scripts/deployment/rollback.sh ${{ github.event.inputs.environment || 'staging' }}
