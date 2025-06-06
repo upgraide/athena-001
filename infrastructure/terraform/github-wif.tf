@@ -52,6 +52,7 @@ resource "google_project_iam_member" "github_actions_permissions" {
     "roles/iam.serviceAccountUser",
     "roles/storage.objectAdmin",
     "roles/datastore.importExportAdmin",
+    "roles/serviceusage.serviceUsageConsumer",
   ])
   
   project = var.project_id
