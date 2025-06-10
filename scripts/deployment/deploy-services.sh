@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
 # Color codes
@@ -29,6 +29,7 @@ SERVICE_CONFIG=(
     ["document-ai"]="PORT=8080,MEMORY=1Gi,CPU=2"
     ["transaction-analyzer"]="PORT=8080,MEMORY=512Mi,CPU=1"
     ["insight-generator"]="PORT=8080,MEMORY=512Mi,CPU=1"
+    ["banking-service"]="PORT=8084,MEMORY=1Gi,CPU=2"
 )
 
 # Environment-specific settings
@@ -94,6 +95,18 @@ for service in "${!SERVICE_CONFIG[@]}"; do
             --set-secrets=JWT_ACCESS_SECRET=jwt-access-secret:latest,JWT_REFRESH_SECRET=jwt-refresh-secret:latest"
     fi
     
+    # Add secrets for banking service
+    if [ "$service" == "banking-service" ]; then
+        deploy_cmd="$deploy_cmd \
+            --set-secrets=GOCARDLESS_SECRET_ID=gocardless-secret-id:latest,GOCARDLESS_SECRET_KEY=gocardless-secret-key:latest,JWT_ACCESS_SECRET=jwt-access-secret:latest,JWT_REFRESH_SECRET=jwt-refresh-secret:latest"
+    fi
+    
+    # Add JWT secrets for all other services (they need to verify tokens)
+    if [ "$service" != "auth-service" ] && [ "$service" != "banking-service" ]; then
+        deploy_cmd="$deploy_cmd \
+            --set-secrets=JWT_ACCESS_SECRET=jwt-access-secret:latest,JWT_REFRESH_SECRET=jwt-refresh-secret:latest"
+    fi
+    
     # Add environment labels
     deploy_cmd="$deploy_cmd --labels=environment=$ENVIRONMENT,version=$VERSION,service=$service"
     
@@ -149,7 +162,7 @@ if [ "$ENVIRONMENT" == "production" ]; then
             "event": "deployment_completed",
             "environment": "'$ENVIRONMENT'",
             "version": "'$VERSION'",
-            "services": ["auth-service", "finance-master", "document-ai", "transaction-analyzer", "insight-generator"],
+            "services": ["auth-service", "finance-master", "document-ai", "transaction-analyzer", "insight-generator", "banking-service"],
             "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
         }'
 fi
